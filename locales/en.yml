@@ -1,0 +1,142 @@
+en:
+  emoji:
+    success:  "✅"
+    info:     "🔍"
+    ongoing:  "🔁"
+    warning:  "⚠️"
+    error:    "❌"
+    version:  "💾"
+    broom:    "🧹"
+    question: "❓"
+  messages:
+    network_exists_adopted: "Docker network '%{name}' already exists (adopted by this project)."
+    network_exists: "Docker network '%{name}' already exists."
+    create_failed: "Failed to create network with: %{cmd}."
+    remove_network: "Removing Docker network '%{name}'."
+    nothing_to_do: "Nothing to do (no network created by this 'up')."
+    not_owned: "Network '%{name}' is not marked by this plugin, ignoring."
+    no_networks: "No networks managed by the plugin."
+    networks_header: "Docker networks managed by the plugin:"
+    prune_none: "No network to remove."
+    confirm_continue: "%{prompt} Continue? [y/N]"
+  usage:
+    init:    "Usage: vagrant network init <name> <subnet>"
+    destroy: "Usage: vagrant network destroy <name> [--with-containers]"
+    reload:  "Usage: vagrant network reload <name>"
+    info:    "Usage: vagrant network info <name>"
+    list:    "Usage: vagrant network list"
+    prune:   "Usage: vagrant network prune"
+    rename:  "Usage: vagrant network rename <old> <new> [subnet]"
+  errors:
+    docker_unavailable: "Docker is unavailable. Make sure it is installed and running."
+    unknown_command: "Unknown command. Try: vagrant network help."
+    network_exists: "Network already exists."
+    network_not_found: "Network not found."
+    invalid_subnet: "Invalid subnet."
+    subnet_in_use: "Subnet already in use or overlapping."
+    cancelled: "Cancelled by user."
+    inspect_failed: "docker network inspect failed."
+    create_failed: "Failed to create network."
+    remove_failed: "Failed to remove network."
+    target_exists: "Target network already exists."
+    partial_failure: "Partial failure."
+    invalid_name: "Invalid network name. Must be 1-127 characters, start with a letter or digit, and contain only letters, digits, underscores (_), periods (.), or hyphens (-)."
+    invalid_type: "network_type must be 'bridge' or 'macvlan'."
+    invalid_gateway: "network_gateway must be an IPv4 string."
+    invalid_parent: "network_parent must be a String (host interface)."
+    invalid_attachable: "network_attachable must be boolean."
+    invalid_ipv6: "enable_ipv6 must be boolean."
+    invalid_ip_range: "ip_range must be an IPv4/CIDR string."
+    invalid_cleanup: "cleanup_on_destroy must be boolean."
+    invalid_locale: "locale must be 'fr' or 'en'."
+  prompts:
+    delete_network: "This will delete network '%{name}'."
+    delete_network_only: "This will delete network '%{name}' (containers will be left untouched)."
+    delete_network_with_containers: "This will delete network '%{name}' and remove %{count} attached container(s)."
+    reload_network: "This will delete and recreate '%{name}'."
+    rename_network: "Rename '%{old}' → '%{new}'?"
+    rename_same_subnet: "Rename '%{old}' → '%{new}'?"
+    reload_same: "Reload the network '%{name}' with the same subnet and reconnect its containers."
+    prune: "Delete %{count} unused network(s)?"
+  log:
+    create_network: "Create network '%{name}' (subnet: %{subnet})."
+    remove_network: "Remove network '%{name}'."
+    remove_container: "Remove container '%{name}'."
+    disconnect_container: "Disconnect container '%{name}'."
+    subnet_changed: "Subnet changed — containers not auto-reconnected."
+    info_header: "Info for '%{name}':"
+    version_line: "v%{version}."
+    ok: "OK."
+  docker_provider:
+    network_create: "Creating network…"
+    creating: "Creating Docker container…"
+    created: "Container created."
+    network_connect: "Connecting container to network…"
+    messages:
+      starting: "Starting container…"
+  help:
+    general_title: "Usage: vagrant network <command> [args] [options]"
+    commands:
+      init:    "network init <name> <subnet>"
+      destroy: "network destroy <name>"
+      reload:  "network reload <name>"
+      info:    "network info <name>"
+      list:    "network list"
+      prune:   "network prune"
+      rename:  "network rename <old> <new> [<subnet>]"
+      version: "network version"
+    topic:
+      init: |
+        🔧 Help: vagrant network init
+          Usage:
+            vagrant network init <name> <subnet>
+          Description:
+            Creates a bridge Docker network with IPv4/CIDR, validates format and conflicts.
+          Examples:
+            vagrant network init mynet 172.28.100.0/26
+      destroy: |
+        🗑️  Help: vagrant network destroy
+          Usage:
+            vagrant network destroy <name> [--with-containers] [--yes]
+          Description:
+            Deletes the Docker network. By default, containers are only disconnected.
+            With --with-containers, attached containers are also removed (docker rm -f).
+      reload: |
+        🔁 Help: vagrant network reload
+          Usage:
+            vagrant network reload <name> [--yes]
+          Description:
+            Recreates the network with same subnets and tries to reconnect containers.
+            Returns partial failure if some containers fail to reconnect.
+      rename: |
+        ✏️  Help: vagrant network rename
+          Usage:
+            vagrant network rename <old> <new> [<subnet>] [--yes]
+          Description:
+            If subnet changes or name is same, old network is removed/recreated.
+            Fails if removing the old network is not possible.
+      prune: |
+        🧹 Help: vagrant network prune
+          Usage:
+            vagrant network prune [--yes]
+          Description:
+            Removes plugin-managed networks without attached containers.
+      list: |
+        📋 Help: vagrant network list
+          Usage:
+            vagrant network list [--json]
+          Description:
+            Lists plugin-managed networks with driver/scope and subnets.
+      version: |
+        💾 Help: vagrant network version
+          Usage:
+            vagrant network version [--json]
+          Description:
+            Prints the plugin version. With --json, prints a normalized JSON payload.
+      info: |
+        🔍 Help: vagrant network info
+          Usage:
+            vagrant network info <name> [--json]
+          Description:
+            Shows details for a Docker network: driver, subnet(s), and connected containers.
+            With --json, prints a normalized JSON payload.

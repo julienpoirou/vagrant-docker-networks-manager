@@ -1,0 +1,51 @@
+AllCops:
+  TargetRubyVersion: 3.4
+  NewCops: enable
+  Exclude:
+    - 'vendor/**/*'
+    - 'tmp/**/*'
+
+plugins:
+  - rubocop-rspec
+
+inherit_from:
+  - .rubocop_todo.yml
+
+inherit_mode:
+  merge:
+    - Exclude
+    - Include
+
+Metrics/BlockLength:
+  Exclude:
+    - 'spec/**/*'
+
+Metrics/ClassLength:
+  Exclude:
+    - 'lib/vagrant-docker-networks-manager/command.rb'
+
+Metrics/MethodLength:
+  Exclude:
+    - 'lib/vagrant-docker-networks-manager/command.rb'
+
+Metrics/AbcSize:
+  Exclude:
+    - 'lib/vagrant-docker-networks-manager/command.rb'
+
+Layout/LineLength:
+  Max: 120
+
+Style/Documentation:
+  Enabled: false
+
+Gemspec/RequiredRubyVersion:
+  Enabled: false
+
+Naming/FileName:
+  Exclude:
+    - 'lib/vagrant-docker-networks-manager.rb'
+
+RSpec:
+  Language:
+    Expectations:
+      - expect

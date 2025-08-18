@@ -7,6 +7,7 @@
 [![License](https://img.shields.io/github/license/julienpoirou/vagrant-docker-networks-manager.svg)](LICENSE.md)
 [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-%23FE5196.svg)](https://www.conventionalcommits.org)
 [![Renovate](https://img.shields.io/badge/Renovate-enabled-brightgreen.svg)](https://renovatebot.com)
+[![Total downloads](https://img.shields.io/gem/dt/vagrant-docker-networks-manager?logo=rubygems&label=downloads)](https://rubygems.org/gems/vagrant-docker-networks-manager)
 
 Vagrant plugin to **manage Docker networks** with labeled ownership, safe lifecycle hooks, JSON output, and conflict-aware validation.
 

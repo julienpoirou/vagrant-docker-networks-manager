@@ -101,7 +101,7 @@ jobs:
           printf '== Built %s\n' "$GEM_FILE"
 
       - name: Upload gem as CI artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: gem
           path: |

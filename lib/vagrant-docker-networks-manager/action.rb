@@ -17,10 +17,11 @@ module VagrantDockerNetworksManager
     def call(env)
       UiHelpers.setup_i18n!
       cfg  = env[:machine].config.docker_network
-      set_locale!(cfg)
+      UiHelpers.setup_locale_from_config!(cfg)
+      ui   = env[:ui]
 
       unless Util.docker_available?
-        env[:ui].error("#{UiHelpers.e(:error)} #{I18n.t('errors.docker_unavailable')}")
+        UiHelpers.error(ui, "#{UiHelpers.e(:error)} #{I18n.t('errors.docker_unavailable')}")
         return @app.call(env)
       end
 
@@ -30,15 +31,15 @@ module VagrantDockerNetworksManager
       if Util.docker_network_exists?(name)
         if owned_by_this_machine?(name, mid)
           write_marker(env, name, cfg)
-          env[:ui].info("#{UiHelpers.e(:success)} #{I18n.t('messages.network_exists_adopted', name: name)}")
+          UiHelpers.say(ui, "#{UiHelpers.e(:success)} #{I18n.t('messages.network_exists_adopted', name: name)}")
         else
-          env[:ui].info("#{UiHelpers.e(:info)} #{I18n.t('messages.network_exists', name: name)}")
+          UiHelpers.say(ui, "#{UiHelpers.e(:info)} #{I18n.t('messages.network_exists', name: name)}")
         end
       else
         subnet_label = cfg.network_subnet || "-"
 
         if cfg.network_subnet && !VagrantDockerNetworksManager::Util.valid_subnet?(cfg.network_subnet)
-          env[:ui].error("#{UiHelpers.e(:error)} #{I18n.t('errors.invalid_subnet')}")
+          UiHelpers.error(ui, "#{UiHelpers.e(:error)} #{I18n.t('errors.invalid_subnet')}")
           return @app.call(env)
         end
 
@@ -47,19 +48,19 @@ module VagrantDockerNetworksManager
              cfg.network_subnet,
              ignore_network: name
            )
-          env[:ui].error("#{UiHelpers.e(:error)} #{I18n.t('errors.subnet_in_use')}")
+          UiHelpers.error(ui, "#{UiHelpers.e(:error)} #{I18n.t('errors.subnet_in_use')}")
           return @app.call(env)
         end
 
-        env[:ui].info("#{UiHelpers.e(:ongoing)} #{I18n.t('log.create_network', name: name, subnet: subnet_label)}")
+        UiHelpers.say(ui, "#{UiHelpers.e(:ongoing)} #{I18n.t('log.create_network', name: name, subnet: subnet_label)}")
         builder = NetworkBuilder.new(cfg, machine_id: mid)
         args = builder.build_create_command_args
         if Util.sh!(*args)
           write_marker(env, name, cfg)
-          env[:ui].info("#{UiHelpers.e(:success)} #{I18n.t('log.ok')}")
+          UiHelpers.say(ui, "#{UiHelpers.e(:success)} #{I18n.t('log.ok')}")
         else
           rendered = args.shelljoin
-          env[:ui].error("#{UiHelpers.e(:error)} #{I18n.t('messages.create_failed', cmd: rendered)}")
+          UiHelpers.error(ui, "#{UiHelpers.e(:error)} #{I18n.t('messages.create_failed', cmd: rendered)}")
         end
       end
 
@@ -67,14 +68,6 @@ module VagrantDockerNetworksManager
     end
 
     private
-
-    def set_locale!(cfg)
-      lang = cfg.locale || ENV["VDNM_LANG"]
-      return unless lang
-      UiHelpers.set_locale!(lang)
-    rescue UiHelpers::UnsupportedLocaleError
-      UiHelpers.set_locale!("en")
-    end
 
     def write_marker(env, name, cfg)
       m_id  = env[:machine].id
@@ -99,7 +92,7 @@ module VagrantDockerNetworksManager
       }
       File.write(marker, JSON.pretty_generate(payload))
     rescue => e
-      env[:ui].warn("marker write failed for '#{name}': #{e.message}")
+      UiHelpers.warn(env[:ui], "marker write failed for '#{name}': #{e.message}")
     end
 
     def owned_by_this_machine?(name, machine_id)
@@ -115,10 +108,11 @@ module VagrantDockerNetworksManager
     def call(env)
       UiHelpers.setup_i18n!
       cfg  = env[:machine].config.docker_network
-      set_locale!(cfg)
+      UiHelpers.setup_locale_from_config!(cfg)
+      ui   = env[:ui]
 
       unless Util.docker_available?
-        env[:ui].error("#{UiHelpers.e(:error)} #{I18n.t('errors.docker_unavailable')}")
+        UiHelpers.error(ui, "#{UiHelpers.e(:error)} #{I18n.t('errors.docker_unavailable')}")
         return @app.call(env)
       end
 
@@ -131,7 +125,7 @@ module VagrantDockerNetworksManager
       end
 
       if created_by_this_machine?(env, name) || owned_by_this_machine?(name, mid)
-        env[:ui].info("#{UiHelpers.e(:broom)} #{I18n.t('messages.remove_network', name: name)}")
+        UiHelpers.say(ui, "#{UiHelpers.e(:broom)} #{I18n.t('messages.remove_network', name: name)}")
 
         if Util.docker_network_exists?(name)
           out, _e, st = Open3.capture3("docker", "network", "inspect", name)
@@ -140,44 +134,36 @@ module VagrantDockerNetworksManager
               info = JSON.parse(out).first
               (info["Containers"] || {}).values.each do |c|
                 cn = c["Name"]
-                env[:ui].info("#{UiHelpers.e(:ongoing)} #{I18n.t('log.disconnect_container', name: cn)}")
+                UiHelpers.say(ui, "#{UiHelpers.e(:ongoing)} #{I18n.t('log.disconnect_container', name: cn)}")
                 Util.sh!("network", "disconnect", "--force", name, cn)
                 if ENV["VDNM_DESTROY_WITH_CONTAINERS"] == "1"
-                  env[:ui].info("#{UiHelpers.e(:ongoing)} #{I18n.t('log.remove_container', name: cn)}")
+                  UiHelpers.say(ui, "#{UiHelpers.e(:ongoing)} #{I18n.t('log.remove_container', name: cn)}")
                   Util.sh!("rm", "-f", cn)
                 end
               end
             rescue => e
-              env[:ui].warn("failed to parse containers for '#{name}': #{e.message}")
+              UiHelpers.warn(ui, "failed to parse containers for '#{name}': #{e.message}")
             end
           end
 
           if Util.sh!("network", "rm", name)
             delete_marker(env, name)
-            env[:ui].info("#{UiHelpers.e(:success)} #{I18n.t('log.ok')}")
+            UiHelpers.say(ui, "#{UiHelpers.e(:success)} #{I18n.t('log.ok')}")
           else
-            env[:ui].warn("#{UiHelpers.e(:warning)} #{I18n.t('errors.remove_failed')}")
+            UiHelpers.warn(ui, "#{UiHelpers.e(:warning)} #{I18n.t('errors.remove_failed')}")
           end
         else
           delete_marker(env, name)
-          env[:ui].info("#{UiHelpers.e(:info)} #{I18n.t('messages.nothing_to_do')}")
+          UiHelpers.say(ui, "#{UiHelpers.e(:info)} #{I18n.t('messages.nothing_to_do')}")
         end
       else
-        env[:ui].info("#{UiHelpers.e(:broom)} #{I18n.t('messages.nothing_to_do')}")
+        UiHelpers.say(ui, "#{UiHelpers.e(:broom)} #{I18n.t('messages.nothing_to_do')}")
       end
 
       @app.call(env)
     end
 
     private
-
-    def set_locale!(cfg)
-      lang = cfg.locale || ENV["VDNM_LANG"]
-      return unless lang
-      UiHelpers.set_locale!(lang)
-    rescue UiHelpers::UnsupportedLocaleError
-      UiHelpers.set_locale!("en")
-    end
 
     def marker_path(env, name)
       env[:machine].data_dir.join("docker-networks", "#{name}.json")

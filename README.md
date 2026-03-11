@@ -281,10 +281,7 @@ Emojis can be disabled with `--no-emoji`.
 
 ## Permissions & OS notes
 
-- **Linux / macOS**: modifying `/etc/hosts` requires privileges. The plugin pipes through `sudo tee -a` when appending, and writes the file when removing. You may be prompted for your password.
-- **Windows**: the plugin uses **PowerShell elevation** (`Start-Process -Verb RunAs`) when needed to append or rewrite the hosts file.
-
-> If your shell is already elevated (root/Admin), no prompts appear.
+This plugin only calls `docker` CLI commands — no elevated privileges are required by the plugin itself. However, the Docker daemon must be reachable by the current user (e.g. the user must be in the `docker` group on Linux, or Docker Desktop must be running on macOS/Windows).
 
 ---
 

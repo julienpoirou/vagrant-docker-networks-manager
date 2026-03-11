@@ -1,15 +1,15 @@
+inherit_from: .rubocop_todo.yml
+
 AllCops:
-  TargetRubyVersion: 3.4
+  TargetRubyVersion: 3.1
   NewCops: enable
+  SuggestExtensions: false
   Exclude:
     - 'vendor/**/*'
     - 'tmp/**/*'
 
 plugins:
   - rubocop-rspec
-
-inherit_from:
-  - .rubocop_todo.yml
 
 inherit_mode:
   merge:
@@ -34,6 +34,8 @@ Metrics/AbcSize:
 
 Layout/LineLength:
   Max: 120
+  Exclude:
+    - 'lib/vagrant-docker-networks-manager/command.rb'
 
 Style/Documentation:
   Enabled: false

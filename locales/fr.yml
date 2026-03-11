@@ -62,6 +62,7 @@ fr:
     create_network: "Création du réseau '%{name}' (subnet: %{subnet})."
     remove_network: "Suppression du réseau '%{name}'."
     remove_container: "Suppression du conteneur '%{name}'."
+    connect_container: "Connexion du conteneur '%{name}' au réseau '%{network}'."
     disconnect_container: "Déconnexion du conteneur '%{name}'."
     subnet_changed: "Subnet modifié — les conteneurs ne sont pas reconnectés automatiquement."
     info_header: "Informations pour '%{name}' :"

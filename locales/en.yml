@@ -62,6 +62,7 @@ en:
     create_network: "Create network '%{name}' (subnet: %{subnet})."
     remove_network: "Remove network '%{name}'."
     remove_container: "Remove container '%{name}'."
+    connect_container: "Connect container '%{name}' to network '%{network}'."
     disconnect_container: "Disconnect container '%{name}'."
     subnet_changed: "Subnet changed — containers not auto-reconnected."
     info_header: "Info for '%{name}':"

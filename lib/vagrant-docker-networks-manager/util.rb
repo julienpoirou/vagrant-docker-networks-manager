@@ -22,7 +22,7 @@ module VagrantDockerNetworksManager
     def docker_available?
       _out, _err, status = Open3.capture3("docker", "info")
       status.success?
-    rescue
+    rescue StandardError
       false
     end
 
@@ -51,47 +51,37 @@ module VagrantDockerNetworksManager
         end
       end
       result
-    rescue
+    rescue StandardError
       {}
     end
 
-    def list_plugin_networks
+    def fetch_plugin_network_rows
       out, _err, st = Open3.capture3(
         "docker", "network", "ls",
         "--filter", "label=com.vagrant.plugin=docker_networks_manager",
         "--format", "{{.ID}}\t{{.Name}}\t{{.Driver}}\t{{.Scope}}"
       )
       return [] unless st.success?
-
-      rows = out.lines.map do |line|
+      out.lines.map do |line|
         id, name, driver, scope = line.strip.split("\t", 4)
         { id: id, name: name, driver: driver, scope: scope }
       end
+    end
 
+    def list_plugin_networks
+      rows    = fetch_plugin_network_rows
       details = inspect_networks_batched(rows.map { |r| r[:name] })
       rows.each do |r|
         subs = details.dig(r[:name], :subnets) || []
         r[:subnets] = subs.empty? ? "-" : subs.join(", ")
       end
-
       rows
-    rescue
+    rescue StandardError
       []
     end
 
     def list_plugin_networks_detailed
-      out, _err, st = Open3.capture3(
-        "docker", "network", "ls",
-        "--filter", "label=com.vagrant.plugin=docker_networks_manager",
-        "--format", "{{.ID}}\t{{.Name}}\t{{.Driver}}\t{{.Scope}}"
-      )
-      return [] unless st.success?
-
-      rows = out.lines.map { |line|
-        id, name, driver, scope = line.strip.split("\t", 4)
-        { id: id, name: name, driver: driver, scope: scope }
-      }
-
+      rows    = fetch_plugin_network_rows
       details = inspect_networks_batched(rows.map { |r| r[:name] })
       rows.each do |r|
         r[:subnets]    = details.dig(r[:name], :subnets) || []
@@ -106,7 +96,7 @@ module VagrantDockerNetworksManager
       ip = IPAddr.new(ip_str) rescue nil
       return false unless ip && ip.ipv4?
       (ip.mask(mask_str.to_i).to_s == ip_str)
-    rescue
+    rescue StandardError
       false
     end
 
@@ -116,7 +106,7 @@ module VagrantDockerNetworksManager
       ip = IPAddr.new(ip_str) rescue nil
       return nil unless ip&.ipv4?
       "#{ip.mask(mask_str.to_i)}/#{mask_str.to_i}"
-    rescue
+    rescue StandardError
       nil
     end
 
@@ -126,7 +116,7 @@ module VagrantDockerNetworksManager
       na = IPAddr.new(ip_a).mask(mask_a.to_i)
       nb = IPAddr.new(ip_b).mask(mask_b.to_i)
       na.include?(IPAddr.new(ip_b)) || nb.include?(IPAddr.new(ip_a))
-    rescue
+    rescue StandardError
       false
     end
 

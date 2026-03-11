@@ -19,10 +19,13 @@ module VagrantDockerNetworksManager
       error:    "❌",
       version:  "💾",
       broom:    "🧹",
-      question: "❓"
+      question: "❓",
+      bug:      "🐛"
     }.freeze
 
     module_function
+
+    # ── i18n ──────────────────────────────────────────────────────────────────
 
     def setup_i18n!
       return if defined?(@i18n_setup) && @i18n_setup
@@ -52,9 +55,12 @@ module VagrantDockerNetworksManager
       ::I18n.backend.load_translations
     end
 
-    def e(key, no_emoji: false)
-      return "" if no_emoji
-      EMOJI[key] || ""
+    def setup_locale_from_config!(cfg)
+      lang = cfg.locale || ENV["VDNM_LANG"]
+      return unless lang
+      set_locale!(lang)
+    rescue UnsupportedLocaleError
+      set_locale!("en")
     end
 
     def t(key, **opts)
@@ -77,6 +83,44 @@ module VagrantDockerNetworksManager
       v.is_a?(Hash) ? v : {}
     end
 
+    def exists?(key)
+      ::I18n.exists?(key, ::I18n.locale)
+    end
+
+    def our_key?(k)
+      OUR_NAMESPACES.any? { |ns| k.start_with?(ns) }
+    end
+
+    # ── display ───────────────────────────────────────────────────────────────
+
+    def e(key, no_emoji: false)
+      return "" if no_emoji || ENV["VDNM_NO_EMOJI"] == "1"
+      EMOJI[key] || ""
+    end
+
+    def say(ui, msg)
+      ui&.info(msg) || puts(msg)
+    end
+
+    def warn(ui, msg)
+      ui&.warn(msg) || puts(msg)
+    end
+
+    def error(ui, msg)
+      ui&.error(msg) || warn(ui, msg)
+    end
+
+    def debug_enabled?
+      ENV["VDNM_DEBUG"].to_s == "1"
+    end
+
+    def debug(ui, msg)
+      return unless debug_enabled?
+      say(ui, "#{e(:bug)} #{msg}")
+    end
+
+    # ── help ──────────────────────────────────────────────────────────────────
+
     def print_general_help
       setup_i18n!
       puts t("help.general_title")
@@ -89,10 +133,6 @@ module VagrantDockerNetworksManager
       return print_general_help if topic.empty?
       body = t("help.topic.#{topic}", default: nil)
       body ? puts(body) : print_general_help
-    end
-
-    def our_key?(k)
-      OUR_NAMESPACES.any? { |ns| k.start_with?(ns) }
     end
   end
 end

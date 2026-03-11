@@ -36,7 +36,11 @@ module VagrantDockerNetworksManager
     end
 
     def validate(_machine)
-      VagrantDockerNetworksManager::UiHelpers.setup_i18n! rescue nil
+      begin
+        VagrantDockerNetworksManager::UiHelpers.setup_i18n!
+      rescue StandardError
+        nil
+      end
       errors = []
 
       unless @network_name.is_a?(String) && !@network_name.strip.empty? && docker_name?(@network_name)

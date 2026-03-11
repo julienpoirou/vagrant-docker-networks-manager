@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require "ostruct"
 require "json"
 
 require "vagrant-docker-networks-manager/command"
@@ -9,7 +8,7 @@ require "vagrant-docker-networks-manager/helpers"
 require "vagrant-docker-networks-manager/version"
 
 RSpec.describe VagrantDockerNetworksManager::Command do
-  let(:env) { OpenStruct.new(ui: OpenStruct.new(info: nil, error: nil)) }
+  let(:env) { double("env", ui: double("ui", info: nil, error: nil, warn: nil)) }
 
   before do
     VagrantDockerNetworksManager::UiHelpers.setup_i18n!

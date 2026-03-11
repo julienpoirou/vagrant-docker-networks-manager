@@ -5,7 +5,6 @@ require "fileutils"
 require "pathname"
 require "stringio"
 require "tmpdir"
-require "ostruct"
 
 unless defined?(Vagrant)
   module Vagrant

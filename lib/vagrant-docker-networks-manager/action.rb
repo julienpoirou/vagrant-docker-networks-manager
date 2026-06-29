@@ -12,6 +12,7 @@ require_relative "version"
 
 module VagrantDockerNetworksManager
   class ActionUp
+    # Vagrant middleware entry point that ensures the configured Docker network exists.
     def initialize(app, _env); @app = app; end
 
     def call(env)
@@ -21,7 +22,7 @@ module VagrantDockerNetworksManager
       ui   = env[:ui]
 
       unless Util.docker_available?
-        UiHelpers.error(ui, "#{UiHelpers.e(:error)} #{I18n.t('errors.docker_unavailable')}")
+        UiHelpers.error(ui, "#{UiHelpers.e(:error)} #{I18n.t('vdnm.errors.docker_unavailable')}")
         return @app.call(env)
       end
 
@@ -31,15 +32,15 @@ module VagrantDockerNetworksManager
       if Util.docker_network_exists?(name)
         if owned_by_this_machine?(name, mid)
           write_marker(env, name, cfg)
-          UiHelpers.say(ui, "#{UiHelpers.e(:success)} #{I18n.t('messages.network_exists_adopted', name: name)}")
+          UiHelpers.say(ui, "#{UiHelpers.e(:success)} #{I18n.t('vdnm.messages.network_exists_adopted', name: name)}")
         else
-          UiHelpers.say(ui, "#{UiHelpers.e(:info)} #{I18n.t('messages.network_exists', name: name)}")
+          UiHelpers.say(ui, "#{UiHelpers.e(:info)} #{I18n.t('vdnm.messages.network_exists', name: name)}")
         end
       else
         subnet_label = cfg.network_subnet || "-"
 
         if cfg.network_subnet && !VagrantDockerNetworksManager::Util.valid_subnet?(cfg.network_subnet)
-          UiHelpers.error(ui, "#{UiHelpers.e(:error)} #{I18n.t('errors.invalid_subnet')}")
+          UiHelpers.error(ui, "#{UiHelpers.e(:error)} #{I18n.t('vdnm.errors.invalid_subnet')}")
           return @app.call(env)
         end
 
@@ -48,19 +49,19 @@ module VagrantDockerNetworksManager
              cfg.network_subnet,
              ignore_network: name
            )
-          UiHelpers.error(ui, "#{UiHelpers.e(:error)} #{I18n.t('errors.subnet_in_use')}")
+          UiHelpers.error(ui, "#{UiHelpers.e(:error)} #{I18n.t('vdnm.errors.subnet_in_use')}")
           return @app.call(env)
         end
 
-        UiHelpers.say(ui, "#{UiHelpers.e(:ongoing)} #{I18n.t('log.create_network', name: name, subnet: subnet_label)}")
+        UiHelpers.say(ui, "#{UiHelpers.e(:ongoing)} #{I18n.t('vdnm.log.create_network', name: name, subnet: subnet_label)}")
         builder = NetworkBuilder.new(cfg, machine_id: mid)
         args = builder.build_create_command_args
         if Util.sh!(*args)
           write_marker(env, name, cfg)
-          UiHelpers.say(ui, "#{UiHelpers.e(:success)} #{I18n.t('log.ok')}")
+          UiHelpers.say(ui, "#{UiHelpers.e(:success)} #{I18n.t('vdnm.log.ok')}")
         else
           rendered = args.shelljoin
-          UiHelpers.error(ui, "#{UiHelpers.e(:error)} #{I18n.t('messages.create_failed', cmd: rendered)}")
+          UiHelpers.error(ui, "#{UiHelpers.e(:error)} #{I18n.t('vdnm.messages.create_failed', cmd: rendered)}")
         end
       end
 
@@ -70,6 +71,8 @@ module VagrantDockerNetworksManager
     private
 
     def write_marker(env, name, cfg)
+      # The marker is a local fallback ownership record; Docker labels remain
+      # the cross-process/source-of-truth check when the network still exists.
       m_id  = env[:machine].id
       dir   = env[:machine].data_dir.join("docker-networks")
       FileUtils.mkdir_p(dir)
@@ -103,6 +106,7 @@ module VagrantDockerNetworksManager
   end
 
   class ActionDestroy
+    # Vagrant middleware entry point that removes owned Docker networks on destroy.
     def initialize(app, _env); @app = app; end
 
     def call(env)
@@ -112,7 +116,7 @@ module VagrantDockerNetworksManager
       ui   = env[:ui]
 
       unless Util.docker_available?
-        UiHelpers.error(ui, "#{UiHelpers.e(:error)} #{I18n.t('errors.docker_unavailable')}")
+        UiHelpers.error(ui, "#{UiHelpers.e(:error)} #{I18n.t('vdnm.errors.docker_unavailable')}")
         return @app.call(env)
       end
 
@@ -125,7 +129,7 @@ module VagrantDockerNetworksManager
       end
 
       if created_by_this_machine?(env, name) || owned_by_this_machine?(name, mid)
-        UiHelpers.say(ui, "#{UiHelpers.e(:broom)} #{I18n.t('messages.remove_network', name: name)}")
+        UiHelpers.say(ui, "#{UiHelpers.e(:broom)} #{I18n.t('vdnm.messages.remove_network', name: name)}")
 
         if Util.docker_network_exists?(name)
           out, _e, st = Open3.capture3("docker", "network", "inspect", name)
@@ -134,10 +138,10 @@ module VagrantDockerNetworksManager
               info = JSON.parse(out).first
               (info["Containers"] || {}).values.each do |c|
                 cn = c["Name"]
-                UiHelpers.say(ui, "#{UiHelpers.e(:ongoing)} #{I18n.t('log.disconnect_container', name: cn)}")
+                UiHelpers.say(ui, "#{UiHelpers.e(:ongoing)} #{I18n.t('vdnm.log.disconnect_container', name: cn)}")
                 Util.sh!("network", "disconnect", "--force", name, cn)
                 if ENV["VDNM_DESTROY_WITH_CONTAINERS"] == "1"
-                  UiHelpers.say(ui, "#{UiHelpers.e(:ongoing)} #{I18n.t('log.remove_container', name: cn)}")
+                  UiHelpers.say(ui, "#{UiHelpers.e(:ongoing)} #{I18n.t('vdnm.log.remove_container', name: cn)}")
                   Util.sh!("rm", "-f", cn)
                 end
               end
@@ -148,16 +152,16 @@ module VagrantDockerNetworksManager
 
           if Util.sh!("network", "rm", name)
             delete_marker(env, name)
-            UiHelpers.say(ui, "#{UiHelpers.e(:success)} #{I18n.t('log.ok')}")
+            UiHelpers.say(ui, "#{UiHelpers.e(:success)} #{I18n.t('vdnm.log.ok')}")
           else
-            UiHelpers.warn(ui, "#{UiHelpers.e(:warning)} #{I18n.t('errors.remove_failed')}")
+            UiHelpers.warn(ui, "#{UiHelpers.e(:warning)} #{I18n.t('vdnm.errors.remove_failed')}")
           end
         else
           delete_marker(env, name)
-          UiHelpers.say(ui, "#{UiHelpers.e(:info)} #{I18n.t('messages.nothing_to_do')}")
+          UiHelpers.say(ui, "#{UiHelpers.e(:info)} #{I18n.t('vdnm.messages.nothing_to_do')}")
         end
       else
-        UiHelpers.say(ui, "#{UiHelpers.e(:broom)} #{I18n.t('messages.nothing_to_do')}")
+        UiHelpers.say(ui, "#{UiHelpers.e(:broom)} #{I18n.t('vdnm.messages.nothing_to_do')}")
       end
 
       @app.call(env)
@@ -170,6 +174,8 @@ module VagrantDockerNetworksManager
     end
 
     def created_by_this_machine?(env, name)
+      # Trust the marker only for this machine id to avoid removing a network
+      # created or adopted by another Vagrant environment.
       marker = marker_path(env, name)
       return false unless File.exist?(marker)
       j = JSON.parse(File.read(marker)) rescue {}

@@ -16,10 +16,17 @@ module VagrantDockerNetworksManager
     :network_parent, :network_attachable, :enable_ipv6, :ip_range
   )
 
+  NetAttrs = Struct.new(:driver, :ipam_cfgs, :subnets, :containers, :ipv6, :attachable, :parent, :labels)
+
   class Command < Vagrant.plugin("2", :command)
+    DRIVERS = %w[bridge macvlan ipvlan].freeze
+
     def execute
       argv = @argv.dup
-      @opts = { quiet: false, no_emoji: false, json: false, yes: false, lang: nil, with_containers: false }
+      @opts = {
+        quiet: false, no_emoji: false, json: false, yes: false,
+        lang: nil, with_containers: false, driver: nil, parent: nil
+      }
 
       UiHelpers.setup_i18n!
 
@@ -29,6 +36,8 @@ module VagrantDockerNetworksManager
         o.on("--json", "Normalized JSON output for all commands")  { @opts[:json] = true }
         o.on("--yes", "-y", "Auto-confirm destructive operations") { @opts[:yes] = true }
         o.on("--lang LANG", "Force language: en|fr")               { |v| @opts[:lang] = v }
+        o.on("--driver DRIVER", "init: network driver bridge|macvlan|ipvlan") { |v| @opts[:driver] = v }
+        o.on("--parent IFACE", "init: parent host interface (macvlan/ipvlan)") { |v| @opts[:parent] = v }
         o.on(
           '--with-containers',
           'When destroying a network, also remove attached containers'
@@ -54,8 +63,7 @@ module VagrantDockerNetworksManager
 
       needs_docker = %w[init destroy info reload list prune rename].include?(subcmd)
       if needs_docker && !Util.docker_available?
-        msg = "#{UiHelpers.e(:error, no_emoji: @opts[:no_emoji])} #{I18n.t('errors.docker_unavailable')}"
-        return json_or_text("precheck", error: msg, code: 2)
+        return json_or_text("precheck", error: I18n.t('vdnm.errors.docker_unavailable'), code: 2)
       end
 
       case subcmd
@@ -63,133 +71,149 @@ module VagrantDockerNetworksManager
       when "destroy" then cmd_destroy(network_name)
       when "info"    then cmd_info(network_name)
       when "reload"  then cmd_reload(network_name)
-      when "prune"   then cmd_prune
+      when "prune"   then cmd_prune(network_name)
       when "list"    then cmd_list
       when "rename"  then cmd_rename(argv)
       when "version" then cmd_version
       when "help"    then UiHelpers.print_topic_help(argv[1]); 0
-      else           json_or_text("unknown", error: I18n.t("errors.unknown_command"), code: 1)
+      else           json_or_text("unknown", error: I18n.t("vdnm.errors.unknown_command"), code: 1)
       end
     end
 
     private
 
     def cmd_init(network_name, subnet)
-      return json_or_text("init", error: I18n.t("usage.init"), code: 1) if network_name.nil? || subnet.nil?
+      return json_or_text("init", error: I18n.t("vdnm.usage.init"), code: 1) if network_name.nil? || subnet.nil?
       return json_or_text(
         'init',
-        error: I18n.t('errors.network_exists'),
+        error: I18n.t('vdnm.errors.network_exists'),
         data: { name: network_name },
         code: 1
       ) if Util.docker_network_exists?(network_name)
       return json_or_text(
         'init',
-        error: I18n.t('errors.invalid_subnet'),
+        error: I18n.t('vdnm.errors.invalid_subnet'),
         data: { name: subnet },
         code: 1
       ) unless Util.valid_subnet?(subnet)
       return json_or_text(
         'init',
-        error: I18n.t('errors.subnet_in_use'),
+        error: I18n.t('vdnm.errors.subnet_in_use'),
         data: { name: subnet },
         code: 1
       ) if Util.docker_subnet_conflicts?(subnet)
       return json_or_text(
         "init",
-        error: I18n.t("errors.invalid_name"),
+        error: I18n.t("vdnm.errors.invalid_name"),
         data: { name: network_name },
         code: 1
       ) unless network_name =~ /\A[a-zA-Z0-9][a-zA-Z0-9_.-]{0,126}\z/
 
-      cfg  = InitConfig.new(network_name, "bridge", subnet, nil, nil, false, false, nil)
+      driver = (@opts[:driver] || "bridge").to_s.downcase
+      parent = @opts[:parent]
+      driver_error = validate_init_driver(driver, parent)
+      return driver_error if driver_error
+
+      cfg  = InitConfig.new(network_name, driver, subnet, nil, parent, false, false, nil)
       args = NetworkBuilder.new(cfg).build_create_command_args
-      say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('log.create_network', name: network_name, subnet: subnet)}"
+      say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('vdnm.log.create_network', name: network_name, subnet: subnet)}"
       ok = Util.sh!(*args)
       if ok
-        json_or_text("init", data: { name: network_name, subnet: subnet })
+        json_or_text("init", data: { name: network_name, subnet: subnet, driver: driver })
       else
-        json_or_text('init', error: I18n.t("errors.create_failed"), data: { name: network_name, subnet: subnet }, code: 1)
+        json_or_text('init', error: I18n.t("vdnm.errors.create_failed"), data: { name: network_name, subnet: subnet }, code: 1)
       end
     end
 
+    def validate_init_driver(driver, parent)
+      unless DRIVERS.include?(driver)
+        return json_or_text("init", error: I18n.t("vdnm.errors.invalid_driver"), data: { driver: driver }, code: 1)
+      end
+      if %w[macvlan ipvlan].include?(driver) && (parent.nil? || parent.to_s.strip.empty?)
+        return json_or_text("init", error: I18n.t("vdnm.errors.parent_required"), data: { driver: driver }, code: 1)
+      end
+
+      nil
+    end
+
     def cmd_destroy(network_name)
-      return json_or_text("destroy", error: I18n.t("usage.destroy"), code: 1) if network_name.nil?
+      return json_or_text("destroy", error: I18n.t("vdnm.usage.destroy"), code: 1) if network_name.nil?
       return json_or_text(
         "destroy",
-        error: I18n.t("errors.network_not_found"),
+        error: I18n.t("vdnm.errors.network_not_found"),
         data: { name: network_name },
         code: 1
       ) unless Util.docker_network_exists?(network_name)
 
-      out, _e, st = Open3.capture3("docker", "network", "inspect", network_name)
-      containers = []
-      if st.success?
-        j = JSON.parse(out).first
-        containers = (j["Containers"] || {}).values.map { |c| c["Name"] }
+      info       = inspect_network(network_name)
+      containers = info ? network_attrs(info).containers : []
+
+      unless @opts[:with_containers]
+        guard = guard_network_mode("destroy", network_name, containers, { name: network_name })
+        return guard if guard
       end
 
       prompt_key = @opts[:with_containers] ? "prompts.delete_network_with_containers" : "prompts.delete_network_only"
-      prompt_msg = I18n.t(prompt_key, name: network_name, count: containers.size)
-      unless @opts[:yes] || @opts[:json] || confirm!(
-        "#{UiHelpers.e(:question, no_emoji: @opts[:no_emoji])} #{I18n.t('messages.confirm_continue', prompt: prompt_msg)}"
-      )
-        return json_or_text("destroy", error: I18n.t("errors.cancelled"), data: { name: network_name }, code: 1)
-      end
+      stop = require_confirmation("destroy", I18n.t(prompt_key, name: network_name, count: containers.size),
+                                  { name: network_name })
+      return stop if stop
 
-      containers.each do |c|
-        say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('log.disconnect_container', name: c)}"
-        Util.sh!("network", "disconnect", "--force", network_name, c)
-        if @opts[:with_containers]
-          say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('log.remove_container', name: c)}"
-          Util.sh!("rm", "-f", c)
-        end
-      end
+      teardown_containers(network_name, containers)
 
-      say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('log.remove_network', name: network_name)}"
+      say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('vdnm.log.remove_network', name: network_name)}"
       ok = Util.sh!("network", "rm", network_name)
       removed = @opts[:with_containers] ? containers : []
       if ok
         json_or_text("destroy", data: { name: network_name, removed_containers: removed })
       else
-        json_or_text("destroy", error: I18n.t("errors.remove_failed"),
+        json_or_text("destroy", error: I18n.t("vdnm.errors.remove_failed"),
           data: { name: network_name, removed_containers: removed }, code: 1)
       end
     end
 
+    def teardown_containers(network_name, containers)
+      containers.each do |c|
+        say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('vdnm.log.disconnect_container', name: c)}"
+        Util.sh!("network", "disconnect", "--force", network_name, c)
+        next unless @opts[:with_containers]
+
+        say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('vdnm.log.remove_container', name: c)}"
+        Util.sh!("rm", "-f", c)
+      end
+    end
+
     def cmd_info(network_name)
-      return json_or_text("info", error: I18n.t("usage.info"), code: 1) if network_name.nil?
+      return json_or_text("info", error: I18n.t("vdnm.usage.info"), code: 1) if network_name.nil?
       return json_or_text(
         "info",
-        error: I18n.t("errors.network_not_found"),
+        error: I18n.t("vdnm.errors.network_not_found"),
         data: { name: network_name },
         code: 1
       ) unless Util.docker_network_exists?(network_name)
 
-      out, _e, st = Open3.capture3("docker", "network", "inspect", network_name)
-      return json_or_text(
-        "info",
-        error: I18n.t("errors.inspect_failed"),
-        data: { name: network_name },
-        code: 1
-      ) unless st.success?
-      info = JSON.parse(out).first
+      info = inspect_network(network_name)
+      return json_or_text("info", error: I18n.t("vdnm.errors.inspect_failed"), data: { name: network_name }, code: 1) unless info
 
-      if @opts[:json]
-        payload = {
-          network: {
-            "Name"       => info["Name"],
-            "Id"         => info["Id"],
-            "Driver"     => info["Driver"],
-            "Subnets"    => (info.dig("IPAM", "Config") || []).map { |c| c["Subnet"] }.compact,
-            "Containers" => (info["Containers"] || {}).values.map do |c|
-              { "Name" => c["Name"], "IPv4" => c["IPv4Address"] }
-            end
-          }
+      @opts[:json] ? info_json(info) : info_text(info, network_name)
+    end
+
+    def info_json(info)
+      payload = {
+        network: {
+          "Name"       => info["Name"],
+          "Id"         => info["Id"],
+          "Driver"     => info["Driver"],
+          "Subnets"    => (info.dig("IPAM", "Config") || []).map { |c| c["Subnet"] }.compact,
+          "Containers" => (info["Containers"] || {}).values.map do |c|
+            { "Name" => c["Name"], "IPv4" => c["IPv4Address"] }
+          end
         }
-        return json_emit("info", status: "success", data: payload)
-      end
+      }
+      json_emit("info", status: "success", data: payload)
+    end
 
-      say "#{UiHelpers.e(:info, no_emoji: @opts[:no_emoji])} #{I18n.t('log.info_header', name: network_name)}"
+    def info_text(info, network_name)
+      say "#{UiHelpers.e(:info, no_emoji: @opts[:no_emoji])} #{I18n.t('vdnm.log.info_header', name: network_name)}"
       puts "  • ID: #{info['Id'][0...12]}"
       puts "  • Driver: #{info['Driver']}"
       puts "  • Subnet(s): #{(info.dig('IPAM', 'Config') || []).map { |c| c['Subnet'] }.compact.join(', ')}"
@@ -204,122 +228,118 @@ module VagrantDockerNetworksManager
     end
 
     def cmd_reload(network_name)
-      return json_or_text("reload", error: I18n.t("usage.reload"), code: 1) if network_name.nil?
+      return json_or_text("reload", error: I18n.t("vdnm.usage.reload"), code: 1) if network_name.nil?
       return json_or_text(
         "reload",
-        error: I18n.t("errors.network_not_found"),
+        error: I18n.t("vdnm.errors.network_not_found"),
         data: { name: network_name },
         code: 1
       ) unless Util.docker_network_exists?(network_name)
 
-      out, _e, st = Open3.capture3("docker", "network", "inspect", network_name)
-      return json_or_text(
-        "reload",
-        error: I18n.t("errors.inspect_failed"),
-        data: { name: network_name },
-        code: 1
-      ) unless st.success?
-      info = JSON.parse(out).first
+      info = inspect_network(network_name)
+      return json_or_text("reload", error: I18n.t("vdnm.errors.inspect_failed"), data: { name: network_name }, code: 1) unless info
 
-      driver     = info["Driver"] || "bridge"
-      ipam_cfgs  = (info.dig("IPAM", "Config") || [])
-      subnets    = ipam_cfgs.map { |c| c["Subnet"] }.compact
-      containers = (info["Containers"] || {}).values.map { |c| c["Name"] }
-      enable_ipv6 = info["EnableIPv6"]
-      attachable  = info["Attachable"]
-      parent_opt  = info.fetch("Options", {})["parent"]
-      labels_h    = info["Labels"] || {}
-      labels_h["com.vagrant.plugin"] ||= "docker_networks_manager"
+      attrs = network_attrs(info)
 
-      unless ENV["VDNM_SKIP_CONFLICTS"] == "1"
-        has_conflict = subnets.any? { |s| Util.docker_subnet_conflicts?(s, ignore_network: network_name) }
-        if has_conflict
-          return json_or_text("reload",
-            error: I18n.t("errors.subnet_in_use"),
-            data: { name: network_name, subnets: subnets }, code: 1)
-        end
+      if ENV["VDNM_SKIP_CONFLICTS"] != "1" &&
+         attrs.subnets.any? { |s| Util.docker_subnet_conflicts?(s, ignore_network: network_name) }
+        return json_or_text("reload", error: I18n.t("vdnm.errors.subnet_in_use"),
+          data: { name: network_name, subnets: attrs.subnets }, code: 1)
       end
 
-      unless @opts[:yes] || @opts[:json] || confirm!(
-        "#{UiHelpers.e(:question, no_emoji: @opts[:no_emoji])} #{I18n.t('messages.confirm_continue', prompt: I18n.t('prompts.reload_same', name: network_name))}"
-      )
-        return json_or_text("reload", error: I18n.t("errors.cancelled"), data: { name: network_name }, code: 1)
+      guard = guard_network_mode("reload", network_name, attrs.containers, { name: network_name })
+      return guard if guard
+
+      stop = require_confirmation("reload", I18n.t("vdnm.prompts.reload_same", name: network_name), { name: network_name })
+      return stop if stop
+
+      disconnect_containers(network_name, attrs.containers)
+
+      say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('vdnm.log.remove_network', name: network_name)}"
+      unless Util.sh!("network", "rm", network_name)
+        return json_or_text("reload", error: I18n.t("vdnm.errors.remove_failed"), data: { name: network_name }, code: 1)
       end
 
-      containers.each do |c|
-        say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('log.disconnect_container', name: c)}"
-        Util.sh!("network", "disconnect", "--force", network_name, c)
-      end
+      recreate_code = recreate_same_network(network_name, attrs)
+      return recreate_code if recreate_code
 
-      say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('log.remove_network', name: network_name)}"
-      ok_rm = Util.sh!("network", "rm", network_name)
-      unless ok_rm
-        return json_or_text("reload", error: I18n.t("errors.remove_failed"), data: { name: network_name }, code: 1)
-      end
-
-      args = ["network", "create", "--driver", driver]
-      labels_h.each { |k, v| args += ["--label", "#{k}=#{v}"] if k && v }
-      ipam_cfgs.each do |c|
-        args += ["--subnet",   c["Subnet"]]  if c["Subnet"]
-        args += ["--gateway",  c["Gateway"]] if c["Gateway"]
-        args += ["--ip-range", c["IPRange"]] if c["IPRange"]
-      end
-      args << "--ipv6"       if enable_ipv6
-      args << "--attachable" if attachable
-      args += ["--opt", "parent=#{parent_opt}"] if parent_opt && driver == "macvlan"
-      subnet_label = subnets.empty? ? "-" : subnets.join(", ")
-      say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('log.create_network', name: network_name, subnet: subnet_label)}"
-      ok_cr = Util.sh!(*args, network_name)
-      unless ok_cr
-        rendered = (["docker"] + args + [network_name]).map(&:to_s).shelljoin
-        return json_or_text("reload",
-          error: "#{I18n.t('errors.create_failed')} (#{rendered})",
-          data: { name: network_name, subnets: subnets }, code: 1)
-      end
-
-      reconnected     = []
-      failed_reconnect = []
-      containers.each do |c|
-        if Util.sh!("network", "connect", network_name, c)
-          reconnected << c
-        else
-          failed_reconnect << c
-        end
-      end
-
-      data = { name: network_name, subnets: subnets, reconnected: reconnected, failed_reconnect: failed_reconnect }
+      reconnected, failed_reconnect = reconnect_containers(network_name, attrs.containers)
+      data = { name: network_name, subnets: attrs.subnets, reconnected: reconnected, failed_reconnect: failed_reconnect }
       if failed_reconnect.any?
-        json_or_text("reload", error: I18n.t("errors.partial_failure"), data: data, code: 1)
+        json_or_text("reload", error: I18n.t("vdnm.errors.partial_failure"), data: data, code: 1)
       else
         json_or_text("reload", data: data)
       end
     end
 
-    def cmd_prune
-      nets      = Util.list_plugin_networks_detailed
-      to_delete = nets.select { |n| n[:containers].to_i == 0 }
+    def recreate_same_network(network_name, attrs)
+      # Recreate from inspected state so reload keeps labels, IPAM blocks and
+      # driver-specific options that may not exist in the current Vagrant config.
+      args = NetworkBuilder.create_args(
+        name:       network_name,
+        driver:     attrs.driver,
+        labels:     attrs.labels,
+        ipam:       attrs.ipam_cfgs,
+        ipv6:       attrs.ipv6,
+        attachable: attrs.attachable,
+        parent:     attrs.parent
+      )
+      subnet_label = attrs.subnets.empty? ? "-" : attrs.subnets.join(", ")
+      say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('vdnm.log.create_network', name: network_name, subnet: subnet_label)}"
+      return nil if Util.sh!(*args)
+
+      rendered = (["docker"] + args).map(&:to_s).shelljoin
+      json_or_text("reload",
+        error: "#{I18n.t('vdnm.errors.create_failed')} (#{rendered})",
+        data: { name: network_name, subnets: attrs.subnets }, code: 1)
+    end
+
+    def cmd_prune(target = nil)
+      nets = Util.list_plugin_networks_detailed
+      return prune_one(nets, target) if target && !target.to_s.strip.empty?
+
+      prune_all(nets)
+    end
+
+    def prune_one(nets, target)
+      net = nets.find { |n| n[:name] == target }
+      return json_or_text("prune", error: I18n.t("vdnm.errors.network_not_found"), data: { name: target }, code: 1) unless net
+
+      if net[:containers].to_i.positive?
+        return json_or_text("prune",
+          error: I18n.t("vdnm.errors.network_has_containers", name: target, count: net[:containers]),
+          data: { name: target, containers: net[:containers] }, code: 1)
+      end
+
+      stop = require_confirmation("prune", I18n.t("vdnm.prompts.prune", count: 1), { candidates: [target] })
+      return stop if stop
+
+      say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('vdnm.log.remove_network', name: target)}" unless @opts[:quiet]
+      if Util.sh!("network", "rm", target)
+        json_or_text("prune", data: { pruned: 1, items: [target] })
+      else
+        json_or_text("prune", error: I18n.t("vdnm.errors.remove_failed"), data: { attempted: [target] }, code: 1)
+      end
+    end
+
+    def prune_all(nets)
+      to_delete = nets.select { |n| n[:containers].to_i.zero? }
 
       if to_delete.empty?
-        if @opts[:json]
-          return json_emit("prune", status: "success", data: { pruned: 0, items: [] })
-        else
-          say "#{UiHelpers.e(:info, no_emoji: @opts[:no_emoji])} #{I18n.t('messages.prune_none')}"
-          return 0
-        end
+        return json_emit("prune", status: "success", data: { pruned: 0, items: [] }) if @opts[:json]
+
+        msg_key = nets.any? ? "vdnm.messages.prune_all_busy" : "vdnm.messages.prune_none"
+        say "#{UiHelpers.e(:info, no_emoji: @opts[:no_emoji])} #{I18n.t(msg_key, count: nets.size)}"
+        return 0
       end
 
-      unless @opts[:yes] || @opts[:json] || confirm!(
-        "#{UiHelpers.e(:question, no_emoji: @opts[:no_emoji])} #{I18n.t('messages.confirm_continue', prompt: I18n.t('prompts.prune', count: to_delete.size))}"
-      )
-        return json_or_text("prune",
-          error: I18n.t("errors.cancelled"),
-          data: { candidates: to_delete.map { |n| n[:name] } },
-          code: 1)
-      end
+      stop = require_confirmation("prune", I18n.t("vdnm.prompts.prune", count: to_delete.size),
+                                  { candidates: to_delete.map { |n| n[:name] } })
+      return stop if stop
 
       ok_all = true
       to_delete.each do |n|
-        say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('log.remove_network', name: n[:name])}" unless @opts[:quiet]
+        say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('vdnm.log.remove_network', name: n[:name])}" unless @opts[:quiet]
         ok_all &&= Util.sh!("network", "rm", n[:name])
       end
 
@@ -327,7 +347,7 @@ module VagrantDockerNetworksManager
         json_or_text("prune", data: { pruned: to_delete.size, items: to_delete.map { |n| n[:name] } })
       else
         json_or_text("prune",
-          error: I18n.t("errors.partial_failure"),
+          error: I18n.t("vdnm.errors.partial_failure"),
           data: { attempted: to_delete.map { |n| n[:name] } },
           code: 1)
       end
@@ -340,11 +360,11 @@ module VagrantDockerNetworksManager
       end
 
       if nets.empty?
-        say "#{UiHelpers.e(:info, no_emoji: @opts[:no_emoji])} #{I18n.t('messages.no_networks')}"
+        say "#{UiHelpers.e(:info, no_emoji: @opts[:no_emoji])} #{I18n.t('vdnm.messages.no_networks')}"
         return 0
       end
 
-      say "#{UiHelpers.e(:info, no_emoji: @opts[:no_emoji])} #{I18n.t('messages.networks_header')}"
+      say "#{UiHelpers.e(:info, no_emoji: @opts[:no_emoji])} #{I18n.t('vdnm.messages.networks_header')}"
       headers  = ["Name", "Driver", "Scope", "Subnet(s)"]
       name_w   = ([headers[0].length] + nets.map { |r| r[:name].length }).max
       driver_w = ([headers[1].length] + nets.map { |r| r[:driver].length }).max
@@ -367,165 +387,216 @@ module VagrantDockerNetworksManager
     end
 
     def cmd_rename(argv)
-      return json_or_text("rename", error: I18n.t("usage.rename"), code: 1) if argv.length < 3
+      return json_or_text("rename", error: I18n.t("vdnm.usage.rename"), code: 1) if argv.length < 3
 
       old_name   = argv[1]
       new_name   = argv[2]
       new_subnet = argv[3]
 
+      code = validate_rename_targets(old_name, new_name)
+      return code if code
+
+      info = inspect_network(old_name)
+      return json_or_text("rename", error: I18n.t("vdnm.errors.inspect_failed"), data: { old: old_name }, code: 1) unless info
+
+      attrs         = network_attrs(info)
+      target_subnet = new_subnet || attrs.subnets.first
       return json_or_text(
         "rename",
-        error: I18n.t("errors.network_not_found"),
-        data: { old: old_name },
-        code: 1
-      ) unless Util.docker_network_exists?(old_name)
-      if new_name != old_name && Util.docker_network_exists?(new_name)
-        return json_or_text("rename", error: I18n.t("errors.target_exists"), data: { new: new_name }, code: 1)
-      end
-
-      o, _e, st = Open3.capture3("docker", "network", "inspect", old_name)
-      return json_or_text(
-        "rename",
-        error: I18n.t("errors.inspect_failed"),
-        data: { old: old_name },
-        code: 1
-      ) unless st.success?
-      j = JSON.parse(o).first
-
-      driver      = j["Driver"] || "bridge"
-      old_subnets = (j.dig("IPAM", "Config") || []).map { |c| c["Subnet"] }.compact
-      containers  = (j["Containers"] || {}).values.map { |c| c["Name"] }
-      enable_ipv6 = j["EnableIPv6"]
-      attachable  = j["Attachable"]
-      parent_opt  = j.fetch("Options", {})["parent"]
-      labels_h    = j["Labels"] || {}
-      labels_h["com.vagrant.plugin"] ||= "docker_networks_manager"
-
-      target_subnet = new_subnet || old_subnets.first
-      return json_or_text(
-        "rename",
-        error: I18n.t("errors.invalid_subnet"),
+        error: I18n.t("vdnm.errors.invalid_subnet"),
         data: { subnet: target_subnet },
         code: 1
       ) unless Util.valid_subnet?(target_subnet)
 
-      old_norms   = old_subnets.map { |s| Util.normalize_cidr(s) }.compact
-      target_norm = Util.normalize_cidr(target_subnet)
-      same_subnet = old_norms.include?(target_norm)
+      same_subnet = attrs.subnets.map { |s| Util.normalize_cidr(s) }.compact.include?(Util.normalize_cidr(target_subnet))
 
       if !same_subnet && Util.docker_subnet_conflicts?(target_subnet, ignore_network: old_name)
-        return json_or_text("rename", error: I18n.t("errors.subnet_in_use"), data: { subnet: target_subnet }, code: 1)
+        return json_or_text("rename", error: I18n.t("vdnm.errors.subnet_in_use"), data: { subnet: target_subnet }, code: 1)
       end
 
-      prompt_msg =
-        if new_name == old_name && same_subnet
-          I18n.t("prompts.reload_same", name: old_name)
-        elsif new_name == old_name && !same_subnet
-          I18n.t("prompts.reload_network", name: old_name)
-        elsif same_subnet
-          I18n.t("prompts.rename_same_subnet", old: old_name, new: new_name)
-        else
-          I18n.t("prompts.rename_network", old: old_name, new: new_name)
-        end
-      unless @opts[:yes] || @opts[:json] || confirm!(
-        "#{UiHelpers.e(:question, no_emoji: @opts[:no_emoji])} #{I18n.t('messages.confirm_continue', prompt: prompt_msg)}"
-      )
-        return json_or_text("rename",
-          error: I18n.t("errors.cancelled"),
-          data: { old: old_name, new: new_name },
-          code: 1)
-      end
+      guard = guard_network_mode("rename", old_name, attrs.containers, { old: old_name, new: new_name })
+      return guard if guard
 
-      reconnected      = []
-      failed_reconnect = []
-
-      create_with_retry = lambda do |name_to_create, subnet_to_use|
-        say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('log.create_network', name: name_to_create, subnet: subnet_to_use)}"
-        args = ["network", "create", "--driver", driver, "--subnet", subnet_to_use]
-        labels_h.each { |k, v| args += ["--label", "#{k}=#{v}"] if k && v }
-        args << "--ipv6"       if enable_ipv6
-        args << "--attachable" if attachable
-        args += ["--opt", "parent=#{parent_opt}"] if parent_opt && driver == "macvlan"
-        ok = Util.sh!(*args, name_to_create)
-        unless ok
-          rendered = (["docker"] + args + [name_to_create]).map(&:to_s).shelljoin
-          err("#{UiHelpers.e(:error, no_emoji: @opts[:no_emoji])} #{I18n.t('errors.create_failed')} (#{rendered})")
-        end
-        ok
-      end
+      stop = require_confirmation("rename", rename_prompt(old_name, new_name, same_subnet),
+                                  { old: old_name, new: new_name })
+      return stop if stop
 
       if new_name == old_name || same_subnet
-        target_name = new_name
-
-        containers.each do |c|
-          say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('log.disconnect_container', name: c)}"
-          Util.sh!("network", "disconnect", "--force", old_name, c)
-        end
-
-        say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('log.remove_network', name: old_name)}"
-        ok_rm = Util.sh!("network", "rm", old_name)
-        return json_or_text("rename", error: I18n.t("errors.remove_failed"), data: { name: old_name }, code: 1) unless ok_rm
-
-        ok_cr = create_with_retry.call(target_name, target_subnet)
-        return json_or_text("rename", error: I18n.t("errors.create_failed"),
-          data: { new: target_name, subnet: target_subnet }, code: 1) unless ok_cr
-
-        containers.each do |c|
-          if Util.sh!("network", "connect", target_name, c)
-            reconnected << c
-          else
-            failed_reconnect << c
-          end
-        end
+        rename_in_place(old_name, new_name, target_subnet, attrs)
       else
-        ok_cr = create_with_retry.call(new_name, target_subnet)
-        return json_or_text("rename", error: I18n.t("errors.create_failed"),
-          data: { new: new_name, subnet: target_subnet }, code: 1) unless ok_cr
+        rename_to_new_subnet(old_name, new_name, target_subnet, attrs)
+      end
+    end
 
-        containers.each do |c|
-          if Util.sh!("network", "connect", new_name, c)
-            reconnected << c
-            say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('log.connect_container', name: c, network: new_name)}"
-          else
-            failed_reconnect << c
-          end
-        end
+    def validate_rename_targets(old_name, new_name)
+      return json_or_text(
+        "rename", error: I18n.t("vdnm.errors.network_not_found"), data: { old: old_name }, code: 1
+      ) unless Util.docker_network_exists?(old_name)
 
-        reconnected.each do |c|
-          say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('log.disconnect_container', name: c)}"
-          Util.sh!("network", "disconnect", "--force", old_name, c)
-        end
-
-        say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('log.remove_network', name: old_name)}"
-        ok_rm = Util.sh!("network", "rm", old_name)
-        unless ok_rm
-          return json_or_text("rename",
-            error: I18n.t("errors.remove_failed"),
-            data: {
-              old: old_name, new: new_name, subnet: target_subnet,
-              reconnected: reconnected, failed_reconnect: failed_reconnect
-            },
-            code: 1)
-        end
+      if new_name != old_name && Util.docker_network_exists?(new_name)
+        return json_or_text("rename", error: I18n.t("vdnm.errors.target_exists"), data: { new: new_name }, code: 1)
       end
 
-      result_data = {
+      nil
+    end
+
+    def rename_prompt(old_name, new_name, same_subnet)
+      if new_name == old_name && same_subnet
+        I18n.t("vdnm.prompts.reload_same", name: old_name)
+      elsif new_name == old_name && !same_subnet
+        I18n.t("vdnm.prompts.reload_network", name: old_name)
+      elsif same_subnet
+        I18n.t("vdnm.prompts.rename_same_subnet", old: old_name, new: new_name)
+      else
+        I18n.t("vdnm.prompts.rename_network", old: old_name, new: new_name)
+      end
+    end
+
+    def rename_in_place(old_name, new_name, target_subnet, attrs)
+      disconnect_containers(old_name, attrs.containers)
+
+      say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('vdnm.log.remove_network', name: old_name)}"
+      return json_or_text("rename", error: I18n.t("vdnm.errors.remove_failed"), data: { name: old_name }, code: 1) unless Util.sh!("network", "rm", old_name)
+
+      return json_or_text("rename", error: I18n.t("vdnm.errors.create_failed"),
+        data: { new: new_name, subnet: target_subnet }, code: 1) unless create_subnet_network(new_name, target_subnet, attrs)
+
+      reconnected, failed_reconnect = reconnect_containers(new_name, attrs.containers)
+      rename_result(old_name, new_name, target_subnet, reconnected, failed_reconnect)
+    end
+
+    def rename_to_new_subnet(old_name, new_name, target_subnet, attrs)
+      # Create the replacement network before disconnecting the old one, so
+      # containers keep a usable network path if creation fails.
+      return json_or_text("rename", error: I18n.t("vdnm.errors.create_failed"),
+        data: { new: new_name, subnet: target_subnet }, code: 1) unless create_subnet_network(new_name, target_subnet, attrs)
+
+      reconnected, failed_reconnect = reconnect_containers(new_name, attrs.containers, announce: true)
+      disconnect_containers(old_name, reconnected)
+
+      say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('vdnm.log.remove_network', name: old_name)}"
+      unless Util.sh!("network", "rm", old_name)
+        return json_or_text("rename", error: I18n.t("vdnm.errors.remove_failed"), data: {
+          old: old_name, new: new_name, subnet: target_subnet,
+          reconnected: reconnected, failed_reconnect: failed_reconnect
+        }, code: 1)
+      end
+
+      rename_result(old_name, new_name, target_subnet, reconnected, failed_reconnect)
+    end
+
+    def rename_result(old_name, new_name, target_subnet, reconnected, failed_reconnect)
+      data = {
         old: old_name, new: new_name, subnet: target_subnet,
         reconnected: reconnected, failed_reconnect: failed_reconnect
       }
       if failed_reconnect.any?
-        json_or_text("rename", error: I18n.t("errors.partial_failure"), data: result_data, code: 1)
+        json_or_text("rename", error: I18n.t("vdnm.errors.partial_failure"), data: data, code: 1)
       else
-        json_or_text("rename", data: result_data)
+        json_or_text("rename", data: data)
       end
+    end
+
+    def create_subnet_network(name, subnet, attrs)
+      say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('vdnm.log.create_network', name: name, subnet: subnet)}"
+      args = NetworkBuilder.create_args(
+        name:       name,
+        driver:     attrs.driver,
+        labels:     attrs.labels,
+        ipam:       [{ subnet: subnet }],
+        ipv6:       attrs.ipv6,
+        attachable: attrs.attachable,
+        parent:     attrs.parent
+      )
+      ok = Util.sh!(*args)
+      unless ok
+        rendered = (["docker"] + args).map(&:to_s).shelljoin
+        err("#{UiHelpers.e(:error, no_emoji: @opts[:no_emoji])} #{I18n.t('vdnm.errors.create_failed')} (#{rendered})")
+      end
+      ok
     end
 
     def cmd_version
       if @opts[:json]
         return json_emit("version", status: "success", data: { version: VagrantDockerNetworksManager::VERSION })
       end
-      say "#{UiHelpers.e(:version, no_emoji: @opts[:no_emoji])} #{I18n.t('log.version_line', version: VagrantDockerNetworksManager::VERSION)}"
+      say "#{UiHelpers.e(:version, no_emoji: @opts[:no_emoji])} #{I18n.t('vdnm.log.version_line', version: VagrantDockerNetworksManager::VERSION)}"
       0
+    end
+
+    def inspect_network(name)
+      out, _e, st = Open3.capture3("docker", "network", "inspect", name)
+      return nil unless st.success?
+
+      JSON.parse(out).first
+    end
+
+    def network_attrs(info)
+      ipam_cfgs = info.dig("IPAM", "Config") || []
+      labels    = info["Labels"] || {}
+      labels["com.vagrant.plugin"] ||= "docker_networks_manager"
+      NetAttrs.new(
+        info["Driver"] || "bridge",
+        ipam_cfgs,
+        ipam_cfgs.map { |c| c["Subnet"] }.compact,
+        (info["Containers"] || {}).values.map { |c| c["Name"] },
+        info["EnableIPv6"],
+        info["Attachable"],
+        info.fetch("Options", {})["parent"],
+        labels
+      )
+    end
+
+    def require_confirmation(action, prompt, data)
+      return nil if @opts[:yes]
+
+      if @opts[:json]
+        return json_or_text(action, error: I18n.t("vdnm.errors.confirmation_required"), data: data, code: 1)
+      end
+
+      return nil if confirm!(
+        "#{UiHelpers.e(:question, no_emoji: @opts[:no_emoji])} #{I18n.t('vdnm.messages.confirm_continue', prompt: prompt)}"
+      )
+
+      json_or_text(action, error: I18n.t("vdnm.errors.cancelled"), data: data, code: 1)
+    end
+
+    def disconnect_containers(network_name, containers)
+      containers.each do |c|
+        say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('vdnm.log.disconnect_container', name: c)}"
+        Util.sh!("network", "disconnect", "--force", network_name, c)
+      end
+    end
+
+    def reconnect_containers(network_name, containers, announce: false)
+      reconnected      = []
+      failed_reconnect = []
+      containers.each do |c|
+        if Util.sh!("network", "connect", network_name, c)
+          reconnected << c
+          if announce
+            say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('vdnm.log.connect_container', name: c, network: network_name)}"
+          end
+        else
+          failed_reconnect << c
+        end
+      end
+      [reconnected, failed_reconnect]
+    end
+
+    def network_mode_pinned(network_name, containers)
+      containers.select { |c| Util.container_network_mode(c) == network_name }
+    end
+
+    def guard_network_mode(action, network_name, containers, data)
+      # Containers started with --network=<name> cannot be safely disconnected
+      # and reconnected; Docker treats that network as their primary mode.
+      pinned = network_mode_pinned(network_name, containers)
+      return nil if pinned.empty?
+
+      json_or_text(action,
+        error: I18n.t("vdnm.errors.network_mode_pinned", name: network_name, containers: pinned.join(", ")),
+        data: data.merge(pinned: pinned), code: 1)
     end
 
     def json_or_text(action, error: nil, data: {}, code: 0)
@@ -538,7 +609,7 @@ module VagrantDockerNetworksManager
         err "#{UiHelpers.e(:error, no_emoji: @opts[:no_emoji])} #{error}"
         return code
       else
-        say "#{UiHelpers.e(:success, no_emoji: @opts[:no_emoji])} #{I18n.t('log.ok')}" unless @opts[:quiet]
+        say "#{UiHelpers.e(:success, no_emoji: @opts[:no_emoji])} #{I18n.t('vdnm.log.ok')}" unless @opts[:quiet]
         return 0
       end
     end

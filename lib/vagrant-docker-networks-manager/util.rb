@@ -31,6 +31,11 @@ module VagrantDockerNetworksManager
       st.success? && out.split.include?(name)
     end
 
+    def container_network_mode(container)
+      out, _err, st = Open3.capture3("docker", "inspect", "--format", "{{.HostConfig.NetworkMode}}", container)
+      st.success? ? out.strip : nil
+    end
+
     def read_network_labels(name)
       out, _err, st = Open3.capture3("docker", "network", "inspect", name, "--format", "{{json .Labels}}")
       return {} unless st.success?
@@ -90,6 +95,10 @@ module VagrantDockerNetworksManager
       rows
     end
 
+    # Validates that a CIDR is an IPv4 network address, not just an address with a mask.
+    #
+    # @param cidr [String] CIDR notation such as `172.28.10.0/24`.
+    # @return [Boolean] Whether the value is a normalized IPv4 network CIDR.
     def valid_subnet?(cidr)
       ip_str, mask_str = cidr.to_s.split("/", 2)
       return false unless ip_str && mask_str && mask_str =~ /^\d+$/ && (0..32).include?(mask_str.to_i)
@@ -133,6 +142,14 @@ module VagrantDockerNetworksManager
       end
     end
 
+    # Checks whether a target CIDR overlaps an existing Docker network subnet.
+    #
+    # Compares normalized network CIDRs, not raw strings, so equivalent subnets
+    # and overlaps are caught before Docker returns a late create failure.
+    #
+    # @param target_cidr [String] CIDR to validate.
+    # @param ignore_network [String, nil] Network name ignored during comparison.
+    # @return [Boolean] Whether the CIDR overlaps a Docker network subnet.
     def docker_subnet_conflicts?(target_cidr, ignore_network: nil)
       t_norm = normalize_cidr(target_cidr)
       return false unless t_norm

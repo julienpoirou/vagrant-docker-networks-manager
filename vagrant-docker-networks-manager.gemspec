@@ -33,6 +33,7 @@ Gem::Specification.new do |s|
     "rubygems_mfa_required" => "true",
     "bug_tracker_uri" => 'https://github.com/julienpoirou/vagrant-docker-networks-manager/issues',
     "changelog_uri" => "https://github.com/julienpoirou/vagrant-docker-networks-manager/blob/main/CHANGELOG.md",
+    "documentation_uri" => "https://www.rubydoc.info/gems/vagrant-docker-networks-manager/",
     "source_code_uri" => "https://github.com/julienpoirou/vagrant-docker-networks-manager",
     "homepage_uri" => "https://github.com/julienpoirou/vagrant-docker-networks-manager"
   }

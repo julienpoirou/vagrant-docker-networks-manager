@@ -2,7 +2,7 @@
 
 Gem::Specification.new do |s|
   s.name        = "vagrant-docker-networks-manager"
-  s.version     = File.read(File.join(__dir__, "lib/vagrant-docker-networks-manager/VERSION")).strip
+  s.version     = File.read(File.join(__dir__, "lib/vagrant-docker-networks-manager/VERSION")).split("#").first.strip
   s.summary     = "Vagrant plugin to manage Docker networks with labels, JSON output, and cleanup on destroy"
   s.description = <<~DESC.strip
     Adds `vagrant network` subcommand, creates labeled Docker networks on `vagrant up`,

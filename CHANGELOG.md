@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.0](https://github.com/julienpoirou/vagrant-docker-networks-manager/compare/v1.1.0...v1.2.0) (2026-07-05)
+
+
+### Fonctionnalités ✨
+
+* Improve plugin quality and publish RubyDoc ([25f1767](https://github.com/julienpoirou/vagrant-docker-networks-manager/commit/25f17676c62a19c663664c3dbf4a9b97757d466c))
+
+
+### Corrections 🐛
+
+* Stub container_network_mode in command specs to unbreak CI ([422491e](https://github.com/julienpoirou/vagrant-docker-networks-manager/commit/422491e699139292a1a2edac976d9fb93314f7c5))
+* Wire the workflow_dispatch tag input and make Publish release-safe ([05a1d46](https://github.com/julienpoirou/vagrant-docker-networks-manager/commit/05a1d46f3c6dd3132e2a64dfde13dcab9a3310ca))
+
 ## [1.1.0](https://github.com/julienpoirou/vagrant-docker-networks-manager/compare/v1.0.7...v1.1.0) (2026-03-11)
 
 

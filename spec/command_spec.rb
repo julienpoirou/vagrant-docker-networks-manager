@@ -13,6 +13,7 @@ RSpec.describe VagrantDockerNetworksManager::Command do
   before do
     VagrantDockerNetworksManager::UiHelpers.setup_i18n!
     allow(VagrantDockerNetworksManager::Util).to receive(:docker_available?).and_return(true)
+    allow(VagrantDockerNetworksManager::Util).to receive(:container_network_mode).and_return("bridge")
   end
 
   def run(argv)
@@ -55,7 +56,7 @@ RSpec.describe VagrantDockerNetworksManager::Command do
       .and_return([inspect_json, "", instance_double(Process::Status, success?: true)])
     allow(VagrantDockerNetworksManager::Util).to receive(:sh!).and_return(true)
 
-    code, out, _err = run(%w[destroy netx --json])
+    code, out, _err = run(%w[destroy netx --json --yes])
     expect(code).to eq(0)
     j = JSON.parse(out)
     expect(j["status"]).to eq("success")
@@ -88,7 +89,7 @@ RSpec.describe VagrantDockerNetworksManager::Command do
     allow(VagrantDockerNetworksManager::Util).to receive(:docker_subnet_conflicts?).and_return(false)
     allow(VagrantDockerNetworksManager::Util).to receive(:sh!).and_return(true)
 
-    code, out, _err = run(%w[rename old new --json])
+    code, out, _err = run(%w[rename old new --json --yes])
     expect(code).to eq(0)
     j = JSON.parse(out)
     expect(j["status"]).to eq("success")

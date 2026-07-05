@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/julienpoirou/vagrant-docker-networks-manager/compare/v1.2.0...v1.2.1) (2026-07-05)
+
+
+### Corrections 🐛
+
+* Bump version to publish gemspec documentation_uri metadata ([82e12f2](https://github.com/julienpoirou/vagrant-docker-networks-manager/commit/82e12f28d4cf166823efd4b8a02e915eb904cfeb))
+
 ## [1.2.0](https://github.com/julienpoirou/vagrant-docker-networks-manager/compare/v1.1.0...v1.2.0) (2026-07-05)
 
 

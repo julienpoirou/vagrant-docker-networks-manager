@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.2](https://github.com/julienpoirou/vagrant-docker-networks-manager/compare/v1.2.1...v1.2.2) (2026-07-05)
+
+
+### Corrections 🐛
+
+* Keep lib/VERSION in sync via release-please's x-release-please-version annotation ([e89a4d9](https://github.com/julienpoirou/vagrant-docker-networks-manager/commit/e89a4d9041e74b9f49a4004a87c2e6ee39d01a54))
+
 ## [1.2.1](https://github.com/julienpoirou/vagrant-docker-networks-manager/compare/v1.2.0...v1.2.1) (2026-07-05)
 
 

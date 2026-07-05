@@ -53,7 +53,8 @@ module VagrantDockerNetworksManager
           return @app.call(env)
         end
 
-        UiHelpers.say(ui, "#{UiHelpers.e(:ongoing)} #{I18n.t('vdnm.log.create_network', name: name, subnet: subnet_label)}")
+        UiHelpers.say(ui,
+                      "#{UiHelpers.e(:ongoing)} #{I18n.t('vdnm.log.create_network', name: name, subnet: subnet_label)}")
         builder = NetworkBuilder.new(cfg, machine_id: mid)
         args = builder.build_create_command_args
         if Util.sh!(*args)

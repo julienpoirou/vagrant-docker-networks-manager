@@ -477,9 +477,9 @@ module VagrantDockerNetworksManager
       say "#{UiHelpers.e(:ongoing, no_emoji: @opts[:no_emoji])} #{I18n.t('vdnm.log.remove_network', name: old_name)}"
       unless Util.sh!("network", "rm", old_name)
         return json_or_text("rename", error: I18n.t("vdnm.errors.remove_failed"), data: {
-          old: old_name, new: new_name, subnet: target_subnet,
+                              old: old_name, new: new_name, subnet: target_subnet,
           reconnected: reconnected, failed_reconnect: failed_reconnect
-        }, code: 1)
+                            }, code: 1)
       end
 
       rename_result(old_name, new_name, target_subnet, reconnected, failed_reconnect)

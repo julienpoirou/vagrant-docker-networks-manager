@@ -32,7 +32,7 @@ jobs:
         run: |
           bundle exec ruby \
             -e "ARGV.unshift('doc', '--quiet'); load Gem.bin_path('yard', 'yard')"
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: doc
 
